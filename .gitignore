@@ -1,0 +1,49 @@
+# Python cache
+__pycache__/
+*.py[cod]
+**/__pycache__/
+
+# Virtual environment
+venv/
+.env/
+.venv/
+
+# -------------------------
+# Data
+# -------------------------
+data/*
+!data/wesad_small.csv
+
+# -------------------------
+# Logs
+# -------------------------
+logs/
+*.log
+
+# -------------------------
+# Generated files
+# -------------------------
+*.wav
+audio/*.wav
+experiments/*.wav
+
+# -------------------------
+# AI / Experiment artifacts
+# -------------------------
+ai_music/outputs/
+experiments/bundles/
+experiments/soundfonts/
+
+# -------------------------
+# Models
+# -------------------------
+models/*.pkl
+experiments/*.pkl
+
+# -------------------------
+# OS / Editor
+# -------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
