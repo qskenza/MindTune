@@ -7,30 +7,19 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 import streamlit as st
+import joblib
 
 from emotion_detection.facial_emotion import detect_face_emotion
-from emotion_detection.emotion_fusion import (
-    fuse_emotions,
-    normalize_face_emotion,
-    normalize_watch_emotion
-)
-from emotion_detection.hr_emotion import hr_to_emotion
+from emotion_detection.emotion_fusion import fuse_emotions, normalize_face_emotion, normalize_watch_emotion
 from music_module import recommend_music
 from audio.audio_generator import generate_audio
-from wearable.hrm_belt import (
-    start_hr_monitor,
-    get_latest_hr,
-    is_connected,
-    has_fresh_data
-)
+from wearable.watch_data import get_watch_data
 from logs.experiment_logger import log_experiment
 
 st.set_page_config(page_title="MindTune", page_icon="🎵", layout="wide")
 
-# Start HR monitoring once
-if "hr_monitor_started" not in st.session_state:
-    start_hr_monitor()
-    st.session_state.hr_monitor_started = True
+MODEL_PATH = ROOT / "models" / "classical" / "rf_model.pkl"
+model = joblib.load(MODEL_PATH)
 
 st.markdown("""
     <style>
@@ -65,7 +54,7 @@ st.markdown("""
 
 st.markdown('<div class="main-title">🎵 MindTune</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Emotion-adaptive therapeutic music generation using facial emotion and HRM belt heart rate</div>',
+    '<div class="subtitle">Emotion-adaptive therapeutic music generation for stress, anxiety, and mood regulation</div>',
     unsafe_allow_html=True
 )
 
@@ -81,11 +70,9 @@ with colA:
 
 with colB:
     st.markdown("### System Status")
-    if is_connected():
-        st.success("HRM belt connected")
-    else:
-        st.warning("HRM belt not connected yet")
-    st.info("Facial emotion detection enabled")
+    st.success("Model loaded")
+    st.info("Physiological data currently simulated")
+    st.info("MusicGen enabled for Instrumental mode")
 
 st.markdown("---")
 st.write("Analyze the user state and generate a therapeutic audio response.")
@@ -117,12 +104,10 @@ def therapeutic_explanation(emotion: str, mode: str):
 
 if st.button("Analyze Emotion", use_container_width=True):
     with st.spinner("Analyzing emotional state and generating therapeutic audio..."):
-        hr = get_latest_hr()
+        ecg, eda, temp, resp = get_watch_data(simulated=True)
 
-        if not has_fresh_data():
-            st.warning("No fresh HR data detected. The app will continue, but physiological input may be limited.")
-
-        watch_emotion = normalize_watch_emotion(hr_to_emotion(hr))
+        watch_raw = model.predict([[ecg, eda, temp, resp]])[0]
+        watch_emotion = normalize_watch_emotion(str(watch_raw))
 
         face_emotion, face_scores = detect_face_emotion(debug=True)
         face_emotion = normalize_face_emotion(face_emotion)
@@ -157,8 +142,10 @@ if st.button("Analyze Emotion", use_container_width=True):
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Physiological")
         st.write(f"**Predicted emotion:** {watch_emotion}")
-        st.write(f"**Heart Rate:** {hr if hr is not None else 'No data'} bpm")
-        st.write("**Source:** HRM belt")
+        st.write(f"**ECG:** {ecg:.3f}")
+        st.write(f"**EDA:** {eda:.3f}")
+        st.write(f"**Temperature:** {temp:.2f}")
+        st.write(f"**Respiration:** {resp:.3f}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
@@ -191,6 +178,6 @@ if st.button("Analyze Emotion", use_container_width=True):
     st.audio(audio_file, format="audio/wav")
 
     st.caption(
-        "This prototype combines webcam-based facial emotion detection with real-time HRM belt heart rate data. "
-        "The previous smartwatch-based approach was replaced due to data extraction limitations."
+        "The current prototype uses webcam-based facial emotion detection and simulated physiological values. "
+        "The architecture is prepared for future wearable data integration."
     )
