@@ -1,3 +1,4 @@
+from realtime_sensors import get_sensor_state
 def normalize_face_emotion(face_emotion: str) -> str:
     face_emotion = str(face_emotion).lower()
 
