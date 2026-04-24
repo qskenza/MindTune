@@ -1,4 +1,3 @@
-from realtime_sensors import get_sensor_state
 def normalize_face_emotion(face_emotion: str) -> str:
     face_emotion = str(face_emotion).lower()
 
@@ -7,47 +6,47 @@ def normalize_face_emotion(face_emotion: str) -> str:
         "sad": "sad",
         "neutral": "calm",
         "calm": "calm",
-        "angry": "stress",
+        "angry": "angry",
         "fear": "stress",
         "disgust": "stress",
         "stress": "stress",
-        "surprise": "happy"
+        "surprise": "happy",
     }
 
     return mapping.get(face_emotion, "calm")
 
 
-def normalize_watch_emotion(watch_emotion: str) -> str:
-    watch_emotion = str(watch_emotion).lower()
+def normalize_sensor_state(sensor_state: str) -> str:
+    sensor_state = str(sensor_state).lower()
 
     mapping = {
-        "happy": "happy",
-        "sad": "sad",
         "calm": "calm",
-        "neutral": "calm",
         "stress": "stress",
-        "angry": "stress",
-        "fear": "stress",
-        "disgust": "stress"
+        "stressed": "stress",
+        "active": "active",
+        "neutral": "calm",
     }
 
-    return mapping.get(watch_emotion, "calm")
+    return mapping.get(sensor_state, "calm")
 
 
-def fuse_emotions(face_emotion: str, watch_emotion: str) -> str:
+def fuse_emotions(face_emotion: str, sensor_state: str) -> str:
     face_label = normalize_face_emotion(face_emotion)
-    watch_label = normalize_watch_emotion(watch_emotion)
+    sensor_label = normalize_sensor_state(sensor_state)
 
-    if face_label == watch_label:
-        return face_label
-
-    if face_label in ["sad", "happy"]:
-        return face_label
-
-    if watch_label == "stress" and face_label in ["calm", "stress"]:
+    if sensor_label == "stress" and face_label in ["angry", "fear", "stress", "calm"]:
         return "stress"
 
-    if face_label == "stress":
-        return "stress"
+    if face_label == "angry":
+        return "angry"
+
+    if face_label == "sad":
+        return "sad"
+
+    if face_label == "happy":
+        return "happy"
+
+    if sensor_label == "active":
+        return "active"
 
     return face_label
