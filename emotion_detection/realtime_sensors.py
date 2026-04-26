@@ -1,28 +1,33 @@
 import asyncio
-import glob
-import sys
 import csv
 import os
 import argparse
+import serial
+import threading
+import time
 from datetime import datetime
-
-import smbus2
 from bleak import BleakScanner, BleakClient
 
-sys.modules["smbus"] = smbus2
-from mpu6050 import mpu6050
-
-
+# ================= HRM BELT CONFIG =================
 HR_CHAR_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
-DEVICE_NAME_HINT = "HR"
+DEVICE_NAME_HINT = "HR"   # change to "Decathlon" if needed
 
 latest_hr = None
 latest_rr = []
 hr_connected = False
 
-mpu = mpu6050(0x68)
+# ================= ARDUINO CONFIG =================
+SERIAL_PORT = "COM5"
+BAUD_RATE = 9600
+
+latest_temperature = None
+latest_accel = None
+latest_gyro = None
+latest_movement_score = None
+arduino_connected = False
 
 
+# ================= HRM FUNCTIONS =================
 def parse_hr(data):
     flags = data[0]
     hr_16bit = flags & 0x01
@@ -48,7 +53,13 @@ def parse_hr(data):
 
 def hr_callback(sender, data):
     global latest_hr, latest_rr
-    latest_hr, latest_rr = parse_hr(data)
+
+    hr, rr = parse_hr(data)
+    latest_hr = hr
+
+    if rr:
+        latest_rr.extend(rr)
+        latest_rr = latest_rr[-30:]  # rolling RR history for RMSSD
 
 
 async def start_hrm():
@@ -77,68 +88,129 @@ async def start_hrm():
             await asyncio.sleep(1)
 
 
-def read_mpu():
+# ================= ARDUINO FUNCTIONS =================
+def parse_arduino_line(line):
+    """
+    Arduino sends:
+    accelX,accelY,accelZ,movement,temp
+
+    Example:
+    0.012,-0.030,0.998,0.044,32.50
+    """
+    line = line.strip()
+
+    if line.startswith("STATUS"):
+        print("Arduino status:", line)
+        return None, None, None, None
+
     try:
-        accel = mpu.get_accel_data()
-        gyro = mpu.get_gyro_data()
+        parts = line.split(",")
 
-        movement_score = (
-            abs(accel["x"])
-            + abs(accel["y"])
-            + abs(accel["z"] - 9.81)
-        )
+        if len(parts) != 5:
+            return None, None, None, None
 
-        return accel, gyro, movement_score
+        ax = float(parts[0])
+        ay = float(parts[1])
+        az = float(parts[2])
+        movement_score = float(parts[3])
+        temp = float(parts[4])
 
-    except Exception:
-        return None, None, None
+        if temp == -1.0:
+            temp = None
 
+        accel = {
+            "x": ax,
+            "y": ay,
+            "z": az,
+        }
 
-def read_temperature():
-    try:
-        folders = glob.glob("/sys/bus/w1/devices/28-*")
+        gyro = None
 
-        if not folders:
-            return None
+        return temp, accel, gyro, movement_score
 
-        device_file = folders[0] + "/w1_slave"
-
-        with open(device_file, "r") as f:
-            lines = f.readlines()
-
-        if lines[0].strip()[-3:] != "YES":
-            return None
-
-        temp_pos = lines[1].find("t=")
-
-        if temp_pos != -1:
-            return float(lines[1][temp_pos + 2:]) / 1000.0
-
-        return None
-
-    except Exception:
-        return None
+    except ValueError:
+        return None, None, None, None
 
 
+def arduino_reader():
+    global latest_temperature
+    global latest_accel
+    global latest_gyro
+    global latest_movement_score
+    global arduino_connected
+
+    while True:
+        try:
+            print(f"Connecting to Arduino on {SERIAL_PORT}...")
+            ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+            time.sleep(2)
+            arduino_connected = True
+            print("Arduino connected.")
+
+            while True:
+                line = ser.readline().decode("utf-8", errors="ignore").strip()
+
+                if not line:
+                    continue
+
+                temp, accel, gyro, movement = parse_arduino_line(line)
+
+                if temp is not None:
+                    latest_temperature = temp
+
+                if accel is not None:
+                    latest_accel = accel
+
+                if gyro is not None:
+                    latest_gyro = gyro
+
+                if movement is not None:
+                    latest_movement_score = movement
+
+        except Exception as e:
+            arduino_connected = False
+            print(f"Arduino error: {e}")
+            print("Retrying Arduino connection in 3 seconds...")
+            time.sleep(3)
+
+
+# ================= FEATURES =================
 def compute_rmssd(rr_intervals):
     if rr_intervals is None or len(rr_intervals) < 2:
         return None
 
-    diffs = []
+    diffs = [
+        rr_intervals[i] - rr_intervals[i - 1]
+        for i in range(1, len(rr_intervals))
+    ]
 
-    for i in range(1, len(rr_intervals)):
-        diffs.append(rr_intervals[i] - rr_intervals[i - 1])
-
-    squared_diffs = [d ** 2 for d in diffs]
-    mean_squared = sum(squared_diffs) / len(squared_diffs)
+    mean_squared = sum(d ** 2 for d in diffs) / len(diffs)
 
     return mean_squared ** 0.5
 
 
-def get_sensor_data():
-    accel, gyro, movement = read_mpu()
-    temp = read_temperature()
+def classify_sensor_state(hr, movement, temperature=None):
+    if hr is None:
+        return "calm"
 
+    movement = movement if movement is not None else 0
+
+    if hr >= 95 and movement >= 0.60:
+        return "stress"
+
+    if hr >= 105:
+        return "stress"
+
+    if movement >= 0.85:
+        return "active"
+
+    if hr <= 82 and movement <= 0.52:
+        return "calm"
+
+    return "neutral"
+
+
+def get_sensor_data():
     rr_mean = None
     rmssd = None
 
@@ -149,36 +221,16 @@ def get_sensor_data():
     return {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "hr_connected": hr_connected,
+        "arduino_connected": arduino_connected,
         "heart_rate": latest_hr,
         "rr_intervals": latest_rr,
         "rr_mean": rr_mean,
         "rmssd": rmssd,
-        "temperature": temp,
-        "accel": accel,
-        "gyro": gyro,
-        "movement_score": movement,
+        "temperature": latest_temperature,
+        "accel": latest_accel,
+        "gyro": latest_gyro,
+        "movement_score": latest_movement_score,
     }
-
-
-def classify_sensor_state(hr, movement, temperature=None):
-    if hr is None:
-        return "calm"
-
-    movement = movement if movement is not None else 0
-
-    if hr >= 95 and movement >= 4:
-        return "stress"
-
-    if hr >= 105:
-        return "stress"
-
-    if movement >= 7:
-        return "active"
-
-    if hr <= 85 and movement < 3:
-        return "calm"
-
-    return "neutral"
 
 
 def get_sensor_state():
@@ -193,13 +245,14 @@ def get_sensor_state():
     return data
 
 
+# ================= CSV RECORDING =================
 def ensure_csv_header(output_file):
-    file_exists = os.path.exists(output_file)
-
-    if file_exists:
+    if os.path.exists(output_file):
         return
 
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    folder = os.path.dirname(output_file)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
 
     with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
@@ -232,19 +285,38 @@ def save_row(output_file, data, label):
         ])
 
 
+# ================= MAIN =================
 async def main(label=None, output=None):
+    arduino_thread = threading.Thread(target=arduino_reader, daemon=True)
+    arduino_thread.start()
+
     asyncio.create_task(start_hrm())
 
     if output:
         ensure_csv_header(output)
         print(f"Recording to: {output}")
         print(f"Label: {label}")
+        print("Waiting for Arduino + HRM belt before recording...")
+
+    while output and label:
+        data = get_sensor_state()
+
+        if data["arduino_connected"] and data["hr_connected"] and data["heart_rate"] is not None:
+            print("Both Arduino and HRM are connected. Recording started.")
+            break
+
+        print(
+            f"Waiting... Arduino={data['arduino_connected']} | "
+            f"HRM={data['hr_connected']} | HR={data['heart_rate']}"
+        )
+        await asyncio.sleep(1)
 
     while True:
         data = get_sensor_state()
 
         print("\n====== REAL-TIME SENSOR DATA ======")
         print(f"HR Connected: {data['hr_connected']}")
+        print(f"Arduino Connected: {data['arduino_connected']}")
         print(f"Heart Rate: {data['heart_rate']} bpm")
         print(f"RR Intervals: {data['rr_intervals']}")
         print(f"RR Mean: {data['rr_mean']}")
