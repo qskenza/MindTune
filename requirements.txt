@@ -1,0 +1,27 @@
+# Interface
+streamlit
+
+# Data and classical ML
+numpy
+pandas
+scipy
+scikit-learn
+joblib
+matplotlib
+
+# Quantum ML
+qiskit>=2.1
+qiskit-machine-learning
+
+# Facial emotion recognition
+opencv-python
+deepface
+
+# AI music generation (MusicGen)
+torch
+transformers
+soundfile
+
+# Wearable sensors
+pyserial      # Arduino Nano (temperature + motion sensors)
+bleak         # Bluetooth heart-rate belt

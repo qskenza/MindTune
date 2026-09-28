@@ -138,7 +138,7 @@ MindTune/
 ## Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/MindTune.git
+git clone https://github.com/qskenza/MindTune.git
 cd MindTune
 ```
 
@@ -209,10 +209,9 @@ MindTune demonstrates how classical AI, quantum machine learning, physiological 
 
 ---
 
-# Author
+  # Author
 
-Kenza Qribis
-Al Akhawayn University
-Senior Capstone Project
+  **Kenza Qribis**, Al Akhawayn University
+  Senior Capstone Project, supervised by Dr. Hayat El Asri and Dr. Mouna Kettani
 
 
